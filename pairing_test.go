@@ -279,7 +279,7 @@ func TestMillerFinalExp(t *testing.T) {
 	// !!! e(g1^a, g2) * e(g1^b, g2) != 1 !!!
 	e = NewEngine()
 	e.AddPair(g1a, pg2)
-	e.AddPair(pg1, pg2)
+	e.AddPair(g1b, pg2)
 	res = e.MillerLoopRes()
 	require.True(t, res.isOne())
 }
