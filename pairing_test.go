@@ -1,8 +1,12 @@
 package bls12381
 
 import (
+	"crypto/rand"
+	"fmt"
 	"math/big"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPairingExpected(t *testing.T) {
@@ -227,4 +231,55 @@ func BenchmarkPairing(t *testing.B) {
 		e = bls.calculate()
 	}
 	_ = e
+}
+
+func (e *Engine) MillerLoopRes() *fe12 {
+	f := e.fp12.one()
+	if len(e.pairs) == 0 {
+		return f
+	}
+	e.millerLoop(f)
+	return f
+}
+
+func TestMillerFinalExp(t *testing.T) {
+	e := NewEngine()
+	g1 := NewG1()
+	g2 := NewG2()
+	a := NewFr()
+	b := NewFr()
+	a.Rand(rand.Reader)
+	b.Rand(rand.Reader)
+	fmt.Println("a = ", a)
+	fmt.Println("b = ", b)
+	ai := NewFr()
+	ai.Inverse(a)
+	pg1 := g1.New()
+	pg2 := g2.New()
+	g1a := g1.New()
+	g1.MulScalar(g1a, pg1, a)
+	g1b := g1.New()
+	g1.MulScalar(g1b, pg1, b)
+	g1ai := g1.New()
+	g1.MulScalar(g1ai, pg1, ai)
+
+	// e(g1^a, g2) * e(g1^a^-1, g2) = 1
+	e.AddPair(g1a, pg2)
+	e.AddPair(g1ai, pg2)
+	res := e.MillerLoopRes()
+	require.True(t, res.isOne())
+
+	// e(g1^a,g2) * e(g1a^-1, g2) = 1
+	e = NewEngine()
+	e.AddPair(g1a, pg2)
+	e.AddPairInv(g1a, pg2)
+	res = e.MillerLoopRes()
+	require.True(t, res.isOne())
+
+	// !!! e(g1^a, g2) * e(g1^b, g2) != 1 !!!
+	e = NewEngine()
+	e.AddPair(g1a, pg2)
+	e.AddPair(pg1, pg2)
+	res = e.MillerLoopRes()
+	require.True(t, res.isOne())
 }
