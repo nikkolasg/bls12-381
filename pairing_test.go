@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -244,8 +245,8 @@ func (e *Engine) MillerLoopRes() *fe12 {
 
 func TestMillerFinalExp(t *testing.T) {
 	e := NewEngine()
-	g1 := NewG1()
-	g2 := NewG2()
+	e1 := NewG1()
+	e2 := NewG2()
 	a := NewFr()
 	b := NewFr()
 	a.Rand(rand.Reader)
@@ -254,45 +255,84 @@ func TestMillerFinalExp(t *testing.T) {
 	fmt.Println("b = ", b)
 	ai := NewFr()
 	ai.Inverse(a)
+
+	g1 := e1.New() // base point G1
 	//pg1, err := g1.HashToCurve([]byte("g1point"), []byte("domain1"))
 	//require.Nil(t, err)
-	pg1 := g1.New()
-	//pg2 := g2.New()
-	pg2, err := g2.HashToCurve([]byte("g2point"), []byte("domain1"))
-	require.Nil(t, err)
-	g1a := g1.New()
-	g1.MulScalar(g1a, pg1, a)
-	g1b := g1.New()
-	g1.MulScalar(g1b, pg1, b)
-	g1ai := g1.New()
-	g1.MulScalar(g1ai, pg1, ai)
 
-	// g1 = base point (generator) in g1 = bp1
-	// g2 = <random point> = bp2^x for unknown x
+	g2 := e2.New() // base point G2
+
+	g1a := e1.New() // g1^a
+	e1.MulScalar(g1a, g1, a)
+	g1b := e1.New() // g1^b
+	e1.MulScalar(g1b, g1, b)
+	g1ai := e1.New() // g1^a^-1
+	e1.MulScalar(g1ai, g1, ai)
+
+	// 1. Simple inversion of second pairing
+	// This should be OK
 	// e(g1^a, g2) * e(g1^a^-1, g2) =
-	// e(bp1, bp2)^(a * a^-1 * x) =
-	// 1^x
-	e.AddPair(g1a, pg2)
-	e.AddPair(g1ai, pg2)
+	// e(g1,g2)^a * e(g1,g2)^(a^-1) =
+	// e(g1,g2) ^ (a - a) = 1
+	e.AddPair(g1a, g2)
+	e.AddPair(g1ai, g2)
 	res := e.MillerLoopRes()
-	require.True(t, res.isOne())
+	fmt.Println("CASE 1: miller loop res is one ? ", res.isOne())
+	e.finalExp(res)
+	assert.True(t, res.isOne(), "case 1 failing - result not one")
 
-	// e(g1^a,g2) * e(g1a^-1, g2)
-	// same as above
-	e = NewEngine()
-	e.AddPair(g1a, pg2)
-	e.AddPairInv(g1a, pg2)
-	res = e.MillerLoopRes()
-	require.True(t, res.isOne())
-
+	// 2. Pairing using another random element in G1
+	// This should FAIL
 	// e(g1^a, g2) * e(g1^b, g2)  =
-	// e(bp1, bp2)^ ( a * b ) =
-	// 1 ^ (a*b)
+	// e(g1, g2)^a * e(g1,g2)^b =
+	// e(g1, g2)^(a + b)  != 1
 	e = NewEngine()
-	e.AddPair(g1a, pg2)
-	e.AddPair(g1b, pg2)
+	e.AddPair(g1a, g2)
+	e.AddPair(g1b, g2)
 	res = e.MillerLoopRes()
-	require.True(t, res.isOne())
+	fmt.Println("CASE 2: miller loop res is one ? ", res.isOne())
+	e.finalExp(res)
+	assert.False(t, res.isOne(), "case 2 is failing - result shouldn't be one?")
+
+	// 3. Same inversion as 1. but not using generator points
+	// This should be OK
+	// rbase1 = g1^x for unknown x
+	r1, err := e1.HashToCurve([]byte("g1point"), []byte("domain1"))
+	require.NoError(t, err)
+	r1a := e1.New() // r1^a
+	e1.MulScalar(r1a, r1, a)
+	r1ai := e1.New() // r1^a^-1
+	e1.MulScalar(r1ai, r1, ai)
+	// rbase2 = g2^y for unknown y
+	r2, err := e2.HashToCurve([]byte("g2point"), []byte("domain2"))
+	require.NoError(t, err)
+	// e(r1^a, r2) * e(r1^-a, r2) =
+	// e(g1,g2)^(x*a*y) * e(g1,g2)^(x*-a*y) =
+	// e(g1,g2)^ ( x*a*y - x*a*y ) = 1
+	e = NewEngine()
+	e.AddPair(r1a, r2)
+	e.AddPair(r1ai, r2)
+	res = e.MillerLoopRes()
+	fmt.Println("CASE 3: miller loop res is one ? ", res.isOne())
+	e.finalExp(res)
+	assert.True(t, res.isOne(), "case 3 failing - result not one")
+
+	// 4. Same as one but using the exponents on G1 and G2
+	// This should be OK
+	// e(g1^a, g2) * e(g1, g2^a^-1) =
+	// e(g1,g2)^a * e(g1,g2)^(a^-1) =
+	// e(g1,g2) ^ (a - a) = 1
+
+	g2ai := e2.New() // g2^a^-1
+	e2.MulScalar(g2ai, g2, ai)
+	e = NewEngine()
+	e.AddPair(g1a, g2)
+	e.AddPair(g1b, g2)
+	res = e.MillerLoopRes()
+	// XXX Should it be always one ?
+	fmt.Println("CASE 4: miller loop res is one ? ", res.isOne())
+	e.finalExp(res)
+	assert.True(t, res.isOne(), "case 4 failing - result not one")
 
 }
 
@@ -305,6 +345,8 @@ func TestMillerFinalExpKobi(t *testing.T) {
 	b, err := g2.HashToCurve([]byte("g2point"), []byte("domain2"))
 	c := g1.New() // -g1p
 	g1.Neg(c, a)
+	// e(g1^x, g2^y) * e(g1^x^-1, g2^y) =
+	// e(g1,g2)^(
 	e.AddPair(a, b)
 	e.AddPair(c, b)
 	r := e.MillerLoopRes()
