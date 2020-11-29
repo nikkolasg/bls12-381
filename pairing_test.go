@@ -254,8 +254,12 @@ func TestMillerFinalExp(t *testing.T) {
 	fmt.Println("b = ", b)
 	ai := NewFr()
 	ai.Inverse(a)
+	//pg1, err := g1.HashToCurve([]byte("g1point"), []byte("domain1"))
+	//require.Nil(t, err)
 	pg1 := g1.New()
-	pg2 := g2.New()
+	//pg2 := g2.New()
+	pg2, err := g2.HashToCurve([]byte("g2point"), []byte("domain1"))
+	require.Nil(t, err)
 	g1a := g1.New()
 	g1.MulScalar(g1a, pg1, a)
 	g1b := g1.New()
@@ -263,23 +267,46 @@ func TestMillerFinalExp(t *testing.T) {
 	g1ai := g1.New()
 	g1.MulScalar(g1ai, pg1, ai)
 
-	// e(g1^a, g2) * e(g1^a^-1, g2) = 1
+	// g1 = base point (generator) in g1 = bp1
+	// g2 = <random point> = bp2^x for unknown x
+	// e(g1^a, g2) * e(g1^a^-1, g2) =
+	// e(bp1, bp2)^(a * a^-1 * x) =
+	// 1^x
 	e.AddPair(g1a, pg2)
 	e.AddPair(g1ai, pg2)
 	res := e.MillerLoopRes()
 	require.True(t, res.isOne())
 
-	// e(g1^a,g2) * e(g1a^-1, g2) = 1
+	// e(g1^a,g2) * e(g1a^-1, g2)
+	// same as above
 	e = NewEngine()
 	e.AddPair(g1a, pg2)
 	e.AddPairInv(g1a, pg2)
 	res = e.MillerLoopRes()
 	require.True(t, res.isOne())
 
-	// !!! e(g1^a, g2) * e(g1^b, g2) != 1 !!!
+	// e(g1^a, g2) * e(g1^b, g2)  =
+	// e(bp1, bp2)^ ( a * b ) =
+	// 1 ^ (a*b)
 	e = NewEngine()
 	e.AddPair(g1a, pg2)
 	e.AddPair(g1b, pg2)
 	res = e.MillerLoopRes()
 	require.True(t, res.isOne())
+
+}
+
+func TestMillerFinalExpKobi(t *testing.T) {
+	e := NewEngine()
+	g1 := NewG1()
+	g2 := NewG2()
+	a, err := g1.HashToCurve([]byte("g1point"), []byte("domain1"))
+	require.Nil(t, err)
+	b, err := g2.HashToCurve([]byte("g2point"), []byte("domain2"))
+	c := g1.New() // -g1p
+	g1.Neg(c, a)
+	e.AddPair(a, b)
+	e.AddPair(c, b)
+	r := e.MillerLoopRes()
+	require.True(t, r.isOne())
 }
